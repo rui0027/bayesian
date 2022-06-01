@@ -1,0 +1,80 @@
+---
+title: "LAB2"
+author: "Bing Rui Yao"
+date: "2022/5/2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mvtnorm)
+```
+
+# 2
+```{r include=FALSE}
+data<-read.table("WomenAtWork.dat",header=TRUE)
+X<-as.matrix(data[,2:8])
+y<-as.matrix(data[,1])
+```
+## a)
+```{r}
+mcov<-matrix(0,nrow = 7,ncol = 7)
+diag(mcov)<-rep(25,7)
+
+logpost<-function(b){
+  loglike<-sum((X%*%b)*y-log(1+exp(X%*%b)))
+  if (abs(loglike) == Inf){logLik = -20000}
+  logPrior<-dmvnorm(b,rep(0,7),mcov,log=TRUE)
+  return(loglike+logPrior)
+}
+b_opt<-optim(rep(0,7),fn=logpost,method="BFGS",control=list(fnscale=-1),hessian=TRUE)
+b_est<-b_opt$par
+J<--b_opt$hessian
+```
+$\tilde{\beta}$:
+```{r,echo=FALSE}
+b_est
+```
+$J_y^{-1}(\tilde{\beta})$:
+```{r,echo=FALSE}
+J
+```
+
+## approximate 95% equal tail posterior probability interval for the regression coefficient to the variable NSmallChild:
+```{r}
+c(b_est[6]-1.96*sqrt(J[6,6]/168),b_est[6]+1.96*sqrt(J[6,6]/168))
+```
+
+## Would you say that this feature is of importance for the probability that a woman works? (comparing the posterior means to the maximum likelihood estimates)
+```{r}
+glmModel<-glm(Work ~ 0 + ., data = data, family = binomial)
+summary(glmModel)
+```
+
+## Answer: The posterior mean of coefficient of NSmallChild (-1.62277354) is close to the maximum likelihood estimates (-1.64598). The NSmallChild feature is significant for the probability that a woman works because the p-value is less than 0.001.
+
+## b)
+```{r}
+x_new<-c(1,20,12,8,43,7,10)
+simul<-function(n){
+  beta<-rmvnorm(n,mean=b_est,sigma=J)
+  p<-apply(beta,1,FUN=function(b){exp(x_new%*%b)/(1+exp(x_new%*%b))})
+  return(p)
+}
+hist(simul(1000))
+```
+
+## c)
+```{r}
+x_new<-c(1,20,12,8,43,7,10)
+numwork<-seq(0,11)
+simul_bi<-function(n){
+  beta<-rmvnorm(n,mean=b_est,sigma=J)
+  p<-apply(beta,1,FUN=function(b){exp(x_new%*%b)/(1+exp(x_new%*%b))})
+  p_1<-length(p[p>0.5&is.na(p)==FALSE])/n
+  p_0<-length(p[p<=0.5&is.na(p)==FALSE])/n
+  p_bi<-sapply(numwork,function(x){choose(11,x)*(p_1^x)*(p_0^(11-x))})
+  return(p_bi)
+}
+plot(numwork,simul_bi(1000),type="h")
+```
