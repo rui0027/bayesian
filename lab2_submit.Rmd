@@ -1,0 +1,308 @@
+---
+title: "LAB2"
+author: "Bing Rui Yao, Hong Zhang"
+date: "2022/5/2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mvtnorm)
+```
+
+# 1. Linear and polynomial regression
+
+## a) Use the conjugate prior for the linear regression model.
+
+Linear model:
+
+```{r 1q, echo=FALSE,}
+###### 1 #####------------------------------------------------------------------
+library(ggplot2)
+library(mvtnorm)
+library(MASS)
+library(reshape2) 
+library(LaplacesDemon)
+# 1a----------------------------------------------------------------------------
+# read data
+data <- read.table("TempLambohov.txt", header = TRUE)
+X <- cbind(1, data$time, data$time ** 2)
+y <- data$temp
+n <- nrow(X)
+# linear regression model
+linear_model<- lm(temp~time + I(time**2), data = data)
+linear_model
+
+
+```
+
+Plot of original dataset:
+
+```{r 1a1, echo=FALSE}
+# plot original dataset
+df_1a = data
+df_1a[,3] = predict(linear_model)
+ggplot(df_1a) +
+  geom_point(aes(x = time, y = temp, colour = 'original')) + xlab('time') +
+  ylab('temperature') +
+  geom_line(aes(x = time, y = V3, colour = 'linear model')) +
+  scale_colour_manual(
+    "",
+    breaks = c("original", "linear model"),
+    values = c("steelblue", "red")
+  ) + theme_bw()
+```
+
+conjugate prior Posterior.
+
+plot of original parameters:
+
+```{r 1a_conjugate, echo=FALSE}
+# original parameters-----------------------------------------------------------
+u_0 <- c(-10, 100, -100)
+omega_0 <- 0.02 * diag(3)
+v_0 <- 3
+sigma0_2 <- 2
+
+# joint conjugate prior
+set.seed(12345)
+prior <- matrix(ncol = 3, nrow = 10)
+for(i in 1:10){
+  v <- rinvchisq(1 ,v_0, sigma0_2)
+  prior[i, 1:3] <- mvrnorm(1, u_0, v*solve(omega_0))
+}
+df1 <- as.data.frame(cbind(data$time, X%*%t(prior))) 
+cnames <- c("x")
+for(i in 1:10){
+  cnames[1+i] <- paste0("var", i)
+}
+colnames(df1) <- cnames
+df1 <- melt(df1, id.vars = "x")
+
+ggplot(df1)+
+  geom_line(aes(x = x, y = value, color = variable)) +
+  geom_point(data = data, aes(x = time, y = temp), color = "steelblue")+ 
+  ylab("temperature") + xlab("time")+ theme_bw()
+
+```
+
+The number of draws is 10. The regression curves for the given parameters does not predict the temperature very well, especially in the eighth sampling, where large deviations occurred.
+
+We take $\sigma_0^2 = 0.02$ and optimise the parameters by using the parameters of the linear model instead of the given parameters.
+
+Plot of modified parameters:
+
+```{r 1amodify, echo=FALSE}
+# Modified parameters-----------------------------------------------------------
+u_0 = c(-11.93, 103.42, -95.21)
+omega_0 <- 0.02 * diag(3)
+v_0 <- 3
+sigma0_2 <- 0.02
+
+prior <- matrix(ncol = 3, nrow = 10)
+for (i in 1:10) {
+  v  <- rinvchisq(1 ,v_0, sigma0_2)
+  beta <- mvrnorm(1, u_0, v*solve(omega_0))
+  prior[i,1:3] <- beta
+}
+df2 <- as.data.frame(cbind(data$time, X %*% t(prior)))
+cnames <- c("x")
+for (i in 1:10) {
+  cnames[1+i] <- paste0("var",i)
+}
+colnames(df2) <- cnames
+df2 <- melt(df2, id.vars = "x")
+ggplot(df2)+
+  geom_line(aes(x = x, y = value, color = variable))+
+  geom_point(data = data, aes(x = time, y = temp), color = "steelblue")+
+  ylab("temperature") + xlab("time")+ theme_bw()
+```
+
+## b) Write a function that simulate draws from the joint posterior distribution
+
+Plot a histogram for each marginal posterior of the parameters:
+
+```{r 1b1, echo=FALSE}
+# 1b----------------------------------------------------------------------------
+# regression coefficients
+c <- 3
+beta_hat <- solve(t(X) %*% X) %*% t(X) %*% y
+mu_n <- solve(t(X) %*% X + omega_0) %*% (t(X) %*% X %*% beta_hat + omega_0 %*% u_0)
+omega_n <- t(X) %*% X + omega_0
+v_n <- v_0 + n
+sigman_2 <- (v_0 * sigma0_2 + (t(y) %*% y + t(u_0) %*% omega_0
+                               %*% u_0 - t(mu_n) %*% omega_n %*% mu_n)) / v_n
+
+# beta
+df_1b <- as.data.frame(mvtnorm::rmvt(1000, mu_n, df = n-c, sigma = as.numeric(sigman_2) * solve(t(X) %*% X)))
+# sigma^2 
+df_1b <- cbind(df_1b, rinvchisq(n = 1000, v_n, sigman_2))
+cnames <- c("beta0", "beta1", "beta2", "sigma^2")
+colnames(df_1b) <- cnames
+
+p1 = ggplot(df_1b, aes(x = beta0)) +
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "white",bins = 30) +
+  geom_density()
+
+p2 = ggplot(df_1b, aes(x = beta1)) +
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "white",bins = 30) +
+  geom_density()
+
+p3 = ggplot(df_1b, aes(x = beta2)) +
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "white",bins = 30) +
+  geom_density()
+
+p4 = ggplot(df_1b, aes(x = df_1b$sigma)) +
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "white",bins = 30) +
+  geom_density()
+library(patchwork)
+p1 + p2 + p3 + p4
+```
+
+Make a scatter plot of the temperature data and overlay a curve for the posterior median of the regression function.
+
+```{r 1b2, echo=FALSE}
+# b2----------------------------------------------------------------------------
+df_1b = df_1b[,1:3]
+beta1 = mean(df_1b[,1])
+beta2 = mean(df_1b[,2])
+beta3 = mean(df_1b[,3])
+beta_median = c(beta1, beta2, beta3)
+pred_1b <- beta_median %*% t(X)
+preds <- as.matrix(df_1b) %*% t(X)
+pred_interval <- data.frame(nrow = n, nrow = 2) 
+colnames(pred_interval) <- c("lower","upper")
+# 95% credible interval
+for(i in 1:n){
+  data_t <- preds[, i]
+  pred_interval[i, ] <- quantile(data_t, probs = c(0.025, 0.975))
+}
+
+df_1b <- cbind(data, t(pred_1b), pred_interval)
+
+ggplot(df_1b) +
+  geom_point(aes(x=time, y=temp, color = 'original'))+
+  geom_line(aes(x=time, y=t(pred_1b), color = "median"),size = 0.5) +
+  geom_line(aes(x=time, y=lower, color='interval'), linetype = "dotdash", size = 0.5) +
+  geom_line(aes(x=time, y=upper, color='interval'), linetype = "dotdash", size = 0.5)+ 
+  xlab('time') +
+  ylab('temperature') +
+  scale_colour_manual(
+    "",
+    breaks = c("oridinal", "median",'interval','interval'),
+    values = c("steelblue", "red", 'blue','blue')
+  ) + theme_bw()
+```
+
+The posterior probability intervals does not contain most of the data points, which gives the extent to which the predicted values of the temperature of the fitted curve have some probability of falling around the predicted outcome.
+
+## c) time with the highest expected temperature
+
+```{r 1c, echo=FALSE}
+# 1c----------------------------------------------------------------------------
+# time with the highest expected temperature.
+highest <- c() 
+for(i in 1:365) {
+  highest[i] <- max(preds[, i])
+}
+df_1c <- cbind(data, t(pred_1b), pred_interval, highest)
+ggplot(df_1c) +
+  geom_point(aes(x=time, y=temp, color = 'original'))+
+  geom_line(aes(x=time, y=t(pred_1b), color = "median"),size = 0.5) +
+  geom_line(aes(x=time, y=lower, color='interval'), linetype = "dotdash", size = 0.5) +
+  geom_line(aes(x=time, y=upper, color='interval'), linetype = "dotdash", size = 0.5)+ 
+  geom_line(aes(x=time, y=highest, color='highest'), linetype = "dotdash", size = 1) +
+  xlab('time') +
+  ylab('temperature') +
+  scale_colour_manual(
+    "",
+    breaks = c("oridinal", "median",'interval','interval','highest'),
+    values = c("steelblue", "red", 'blue','blue','orange')
+  ) + theme_bw()
+```
+
+## d) estimate a polynomial regression of order 8
+
+We can use L2 regularization prior:
+$$\beta | \sigma ~ N(0, \frac{\sigma^2}{\lambda})$$
+
+# 2
+```{r include=FALSE}
+data<-read.table("WomenAtWork.dat",header=TRUE)
+X<-as.matrix(data[,2:8])
+y<-as.matrix(data[,1])
+```
+
+## a)
+```{r}
+mcov<-matrix(0,nrow = 7,ncol = 7)
+diag(mcov)<-rep(25,7)
+
+logpost<-function(b){
+  loglike<-sum((X%*%b)*y-log(1+exp(X%*%b)))
+  if (abs(loglike) == Inf){logLik = -20000}
+  logPrior<-dmvnorm(b,rep(0,7),mcov,log=TRUE)
+  return(loglike+logPrior)
+}
+b_opt<-optim(rep(0,7),fn=logpost,method="BFGS",control=list(fnscale=-1),hessian=TRUE)
+b_est<-b_opt$par
+J<--b_opt$hessian
+```
+$\tilde{\beta}$:
+```{r,echo=FALSE}
+b_est
+```
+$J_y^{-1}(\tilde{\beta})$:
+```{r,echo=FALSE}
+J
+```
+
+## approximate 95% equal tail posterior probability interval for the regression coefficient to the variable NSmallChild:
+```{r}
+c(b_est[6]-1.96*sqrt(J[6,6]/168),b_est[6]+1.96*sqrt(J[6,6]/168))
+```
+
+## Would you say that this feature is of importance for the probability that a woman works? (comparing the posterior means to the maximum likelihood estimates)
+```{r}
+glmModel<-glm(Work ~ 0 + ., data = data, family = binomial)
+summary(glmModel)
+```
+
+## Answer: The posterior mean of coefficient of NSmallChild (-1.62277354) is close to the maximum likelihood estimates (-1.64598). The NSmallChild feature is significant for the probability that a woman works because the p-value is less than 0.001.
+
+## b)
+```{r}
+x_new<-c(1,20,12,8,43,7,10)
+simul<-function(n){
+  beta<-rmvnorm(n,mean=b_est,sigma=J)
+  p<-apply(beta,1,FUN=function(b){exp(x_new%*%b)/(1+exp(x_new%*%b))})
+  return(p)
+}
+hist(simul(1000))
+```
+
+## c)
+```{r}
+x_new<-c(1,20,12,8,43,7,10)
+numwork<-seq(0,11)
+simul_bi<-function(n){
+  beta<-rmvnorm(n,mean=b_est,sigma=J)
+  p<-apply(beta,1,FUN=function(b){exp(x_new%*%b)/(1+exp(x_new%*%b))})
+  p_1<-length(p[p>0.5&is.na(p)==FALSE])/n
+  p_0<-length(p[p<=0.5&is.na(p)==FALSE])/n
+  p_bi<-sapply(numwork,function(x){choose(11,x)*(p_1^x)*(p_0^(11-x))})
+  return(p_bi)
+}
+plot(numwork,simul_bi(1000),type="h")
+```
+
+**Code Appendix**
+---------------
+```{r ref.label= knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+
